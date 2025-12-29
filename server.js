@@ -121,6 +121,23 @@ function sendFeeFollowUps() {
   });
 }
 
+// ✅ WEBHOOK VERIFICATION (META)
+const VERIFY_TOKEN = "business_automation_verify"; // same token jo Meta me daalega
+
+app.get("/webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ Webhook verified successfully");
+    res.status(200).send(challenge);
+  } else {
+    console.log("❌ Webhook verification failed");
+    res.sendStatus(403);
+  }
+});
+
 
 // 5️⃣ Incoming message + Auto-reply
 app.post("/webhook", async (req, res) => {
@@ -219,6 +236,9 @@ if (rule) {
 
 // 6️⃣ Server start
 setInterval(sendFeeFollowUps, 60 * 60 * 1000); // every 1 hour
-app.listen(3000, () => {
-  console.log("🚀 Server started on port 3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("🚀 Server started on port", PORT);
 });
+
