@@ -26,6 +26,14 @@ db.serialize(() => {
   `);
 });
 
+db.run(`ALTER TABLE messages ADD COLUMN interest_type TEXT`, (err) => {
+  if (err) {
+    console.log("ℹ️ interest_type column already exists");
+  } else {
+    console.log("✅ interest_type column added");
+  }
+});
+
 
 // 2️⃣ App init
 const app = express();
