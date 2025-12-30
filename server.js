@@ -14,7 +14,7 @@ app.use(express.json());
 // =====================
 // 3️⃣ ENV Vars (NO HARDCODE)
 // =====================
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
+const ACCESS_TOKEN = (process.env.ACCESS_TOKEN || "").trim();
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
@@ -122,6 +122,12 @@ async function aiReply(_) {
 // =====================
 // 8️⃣ Incoming Messages (POST)
 // =====================
+
+console.log("TOKEN LENGTH:", ACCESS_TOKEN.length);
+console.log("TOKEN START:", ACCESS_TOKEN.slice(0, 10));
+console.log("TOKEN END:", ACCESS_TOKEN.slice(-10));
+
+
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
