@@ -1,6 +1,7 @@
 // =====================
-// 1️⃣ Imports
+// 1️⃣ Imports + ENV
 // =====================
+require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const sqlite3 = require("sqlite3").verbose();
@@ -11,28 +12,38 @@ const sqlite3 = require("sqlite3").verbose();
 const app = express();
 app.use(express.json());
 
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
+  next();
+});
+
 // =====================
-// 3️⃣ ENV Vars (NO HARDCODE)
+// 3️⃣ ENV Vars (SINGLE SOURCE)
 // =====================
-const ACCESS_TOKEN = (process.env.ACCESS_TOKEN || "").trim();
+const ACCESS_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 // =====================
-// 4️⃣ Database Init (SINGLE SOURCE OF TRUTH)
+// 4️⃣ Database Init
 // =====================
 const db = new sqlite3.Database("./crm.db", (err) => {
-  if (err) {
-    console.error("❌ DB Connection Error:", err.message);
-  } else {
-    console.log("✅ Connected to CRM database");
-  }
+  if (err) console.error("❌ DB Error:", err.message);
+  else console.log("✅ Connected to CRM database");
 });
 
+// =====================
+// 5️⃣ Tables + Migrations
+// =====================
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
       phone TEXT,
       message TEXT,
       interest_type TEXT,
@@ -40,17 +51,29 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS students (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      name TEXT,
+      phone TEXT,
+      admission_date TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 });
 
 // =====================
-// 5️⃣ Root Test Route
+// 6️⃣ Root
 // =====================
 app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
 // =====================
-// 6️⃣ Webhook Verification (GET)
+// 7️⃣ Webhook Verification
 // =====================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -58,118 +81,138 @@ app.get("/webhook", (req, res) => {
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verified by Meta");
+    console.log("✅ Webhook verified");
     return res.status(200).send(challenge);
   }
-  console.log("❌ Webhook verification failed");
   return res.sendStatus(403);
 });
 
 // =====================
-// 7️⃣ Rules + Helpers
+// 8️⃣ Rules + Helpers
 // =====================
 const RULES = [
-  {
-    keywords: ["fees", "fee", "charges", "price"],
-    reply: "💰 Fees: ₹25,000 (installment available).",
-  },
-  {
-    keywords: ["batch", "timing", "time", "schedule"],
-    reply: "🕒 Batch Timings: Morning 7–9 AM | Evening 5–7 PM.",
-  },
-  {
-    keywords: ["location", "address", "where"],
-    reply: "📍 Location: XYZ Coaching, Main Road.",
-  },
-  {
-    keywords: ["admission", "join", "enroll"],
-    reply: "📝 Admission open! Share your name & class.",
-  },
+  { keywords: ["fees", "fee", "price"], reply: "💰 Fees: ₹25,000 (installments available)." },
+  { keywords: ["batch", "timing"], reply: "🕒 Batch Timings: Morning 7–9 AM | Evening 5–7 PM." },
+  { keywords: ["admission", "join"], reply: "📝 Admission open. Please share your details." },
 ];
 
 function matchRule(text) {
   if (!text) return null;
-  const lower = text.toLowerCase();
-  for (const rule of RULES) {
-    for (const k of rule.keywords) {
-      if (lower.includes(k)) return rule;
-    }
-  }
-  return null;
+  const t = text.toLowerCase();
+  return RULES.find((r) => r.keywords.some((k) => t.includes(k))) || null;
 }
 
 function detectInterest(text) {
   if (!text) return "other";
-  const msg = text.toLowerCase();
-
-  if (msg.includes("fee") || msg.includes("fees") || msg.includes("price"))
-    return "fees";
-  if (msg.includes("admission") || msg.includes("join") || msg.includes("enroll"))
-    return "admission";
-  if (msg.includes("syllabus") || msg.includes("course"))
-    return "syllabus";
-  if (msg.includes("batch") || msg.includes("timing") || msg.includes("time"))
-    return "batch";
-
+  const t = text.toLowerCase();
+  if (t.includes("fee")) return "fees";
+  if (t.includes("admission")) return "admission";
+  if (t.includes("batch")) return "batch";
   return "other";
 }
 
-// Simple AI fallback (placeholder)
-async function aiReply(_) {
-  return "📘 Syllabus step-by-step cover hota hai with regular tests aur doubt sessions, taaki preparation exam-oriented rahe.";
+async function aiReply() {
+  return "📘 Syllabus step-by-step cover hota hai with tests & doubt sessions.";
 }
 
 // =====================
-// 8️⃣ Incoming Messages (POST)
+// 9️⃣ Students APIs
 // =====================
+app.post("/api/students", (req, res) => {
+  const { user_id, name, phone, admission_date, notes } = req.body;
+  if (!user_id || !name || !phone)
+    return res.status(400).json({ error: "Missing fields" });
 
-console.log("TOKEN LENGTH:", ACCESS_TOKEN.length);
-console.log("TOKEN START:", ACCESS_TOKEN.slice(0, 10));
-console.log("TOKEN END:", ACCESS_TOKEN.slice(-10));
+  db.run(
+    `INSERT INTO students (user_id, name, phone, admission_date, notes)
+     VALUES (?, ?, ?, ?, ?)`,
+    [user_id, name, phone, admission_date || null, notes || null],
+    function (err) {
+      if (err) return res.status(500).json({ error: "DB error" });
+      res.json({ success: true });
+    }
+  );
+});
 
+app.get("/api/students/:userId", (req, res) => {
+  db.all(
+    `SELECT * FROM students WHERE user_id = ? ORDER BY created_at DESC`,
+    [req.params.userId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: "DB error" });
+      res.json(rows);
+    }
+  );
+});
 
+// =====================
+// 🔟 Dashboard Stats
+// =====================
+app.get("/api/dashboard/:userId", (req, res) => {
+  const uid = req.params.userId;
+  const stats = {};
+
+  db.get(`SELECT COUNT(*) c FROM students WHERE user_id=?`, [uid], (_, r1) => {
+    stats.total_students = r1?.c || 0;
+
+    db.get(`SELECT COUNT(*) c FROM messages WHERE user_id=?`, [uid], (_, r2) => {
+      stats.total_leads = r2?.c || 0;
+
+      db.get(
+        `SELECT COUNT(*) c FROM messages WHERE user_id=? AND interest_type='fees'`,
+        [uid],
+        (_, r3) => {
+          stats.fees_leads = r3?.c || 0;
+          res.json(stats);
+        }
+      );
+    });
+  });
+});
+
+// =====================
+// 1️⃣1️⃣ Leads API
+// =====================
+app.get("/api/leads/:userId", (req, res) => {
+  db.all(
+    `SELECT phone, message, interest_type, created_at
+     FROM messages WHERE user_id=? ORDER BY created_at DESC`,
+    [req.params.userId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: "DB error" });
+      res.json(rows);
+    }
+  );
+});
+
+// =====================
+// 1️⃣2️⃣ WhatsApp Webhook (POST)
+// =====================
 app.post("/webhook", async (req, res) => {
   try {
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
-    const messages = value?.messages;
+    const msg = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    if (!msg) return res.sendStatus(200);
 
-    if (!messages || messages.length === 0) {
-      return res.sendStatus(200);
-    }
+    const from = msg.from;
+    const text = msg.text?.body || "";
+    const interest = detectInterest(text);
+    const userId = 1; // MVP mapping
 
-    const from = messages[0].from;
-    const text = messages[0].text?.body || "";
-
-    console.log("📩 Message from:", from);
-    console.log("💬 Text:", text);
-
-    const interestType = detectInterest(text);
-    console.log("🎯 Interest Type:", interestType);
-
-    // Save to CRM
     db.run(
-      "INSERT INTO messages (phone, message, interest_type) VALUES (?, ?, ?)",
-      [from, text, interestType],
-      (err) => {
-        if (err) console.error("❌ DB Save Error:", err.message);
-        else console.log("✅ Saved to CRM:", from, "|", interestType);
-      }
+      `INSERT INTO messages (user_id, phone, message, interest_type)
+       VALUES (?, ?, ?, ?)`,
+      [userId, from, text, interest]
     );
 
-    // Reply logic
     const rule = matchRule(text);
-    console.log("RULE MATCHED:", rule ? rule.keywords : "NO RULE → AI");
-    const replyText = rule ? rule.reply : await aiReply(text);
+    const reply = rule ? rule.reply : await aiReply();
 
-    // Send WhatsApp reply
     await axios.post(
       `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`,
       {
         messaging_product: "whatsapp",
         to: from,
-        text: { body: replyText },
+        text: { body: reply },
       },
       {
         headers: {
@@ -179,17 +222,17 @@ app.post("/webhook", async (req, res) => {
       }
     );
 
-    return res.sendStatus(200);
-  } catch (error) {
-    console.error("❌ Error:", error.response?.data || error.message);
-    return res.sendStatus(500);
+    res.sendStatus(200);
+  } catch (e) {
+    console.error("❌ Webhook Error:", e.response?.data || e.message);
+    res.sendStatus(500);
   }
 });
 
 // =====================
-// 9️⃣ Server Start
+// 1️⃣3️⃣ Server Start
 // =====================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("🚀 Server started on port", PORT);
+  console.log("🚀 Server running on port", PORT);
 });
