@@ -24,9 +24,18 @@ app.use((req, res, next) => {
 // =====================
 // 3️⃣ ENV Vars (SINGLE SOURCE)
 // =====================
-const ACCESS_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const ACCESS_TOKEN = String(process.env.ACCESS_TOKEN || "")
+  .replace(/\r/g, "")
+  .replace(/\n/g, "")
+  .trim();
+
+const PHONE_NUMBER_ID = String(process.env.PHONE_NUMBER_ID || "")
+  .replace(/\r/g, "")
+  .replace(/\n/g, "")
+  .trim();
+
+const VERIFY_TOKEN = String(process.env.VERIFY_TOKEN || "").trim();
+
 
 // =====================
 // 4️⃣ Database Init
