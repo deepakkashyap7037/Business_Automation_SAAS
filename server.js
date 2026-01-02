@@ -35,6 +35,9 @@ const PHONE_NUMBER_ID = String(process.env.PHONE_NUMBER_ID || "")
   .trim();
 
 const VERIFY_TOKEN = String(process.env.VERIFY_TOKEN || "").trim();
+console.log("TOKEN LENGTH:", ACCESS_TOKEN.length);
+console.log("TOKEN START:", ACCESS_TOKEN.slice(0, 8));
+console.log("TOKEN END:", ACCESS_TOKEN.slice(-8));
 
 
 // =====================
